@@ -4,6 +4,14 @@ export ORACLE_SID=$1
 export PARAMETER_NAME=$2
 export PARAMETER_VALUE=$3
 
+# Check Oracle SID exists
+/usr/local/bin/dbhome ${ORACLE_SID}
+if [[ $? -gt 0 ]]
+then
+echo "Invalid Oracle SID"
+exit 123
+fi
+
 echo "Setting $PARAMETER_NAME to $PARAMETER_VALUE"
 
 export PATH=$PATH:/usr/local/bin; 

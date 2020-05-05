@@ -3,6 +3,14 @@
 export ORACLE_SID=$1
 export PARAMETERS_CSV=$2
 
+# Check Oracle SID exists
+/usr/local/bin/dbhome ${ORACLE_SID}
+if [[ $? -gt 0 ]]
+then
+echo "Invalid Oracle SID"
+exit 123
+fi
+
 export PATH=$PATH:/usr/local/bin; 
 export ORAENV_ASK=NO ; 
 . oraenv >/dev/null;
