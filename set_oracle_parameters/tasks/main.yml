@@ -1,0 +1,59 @@
+---
+
+- name: Get Database SID
+  set_fact:
+     database_sid: "{{ database_primary_sid | default(database_standby_sid) }}"
+
+- name: Create Empty Expected Database Parameters Dictionary if Not Defined in Config
+  set_fact:
+     database_parameters: {}
+  when: database_parameters is not defined
+
+# We default the expected management pack licence to NONE if we have
+# not explicitly stated in the config that management packs are available
+- name: Create Default Pack Licencing Key if Not Defined
+  set_fact:
+      default_pack_licence:
+          control_management_pack_access: NONE
+  when: "'control_management_pack_access' not in database_parameters" 
+
+- name: Add Default Pack Licencing Key if Not Defined
+  set_fact:
+      database_parameters: '{{ database_parameters| combine(default_pack_licence) }}'
+  when: "'control_management_pack_access' not in database_parameters"
+
+- name: Create CSV List of Database Parameters
+  set_fact:
+     parameter_csv: "{{ database_parameters | dictsort | map(attribute='0') | map('regex_replace', '^(.*)$', \"'\\1'\") | join(',') }}"
+
+- name: Get List of Current Database Parameter Values
+  script:  get_parameter_values.sh {{ database_sid }} "{{ parameter_csv }}"
+  register: current_parameter_values
+  changed_when: false
+
+- set_fact:
+        database_parameters_actual: "{{ database_parameters_actual | default({}) | combine(dict([item.split(',')])) }}"
+  with_items: "{{ current_parameter_values.stdout_lines }}"
+
+- name: What is Set
+  debug:
+     msg: "{{ item }} Expected: {{ database_parameters[item] }} ; Actual: {{ database_parameters_actual[item] }}"
+  with_items: "{{ database_parameters }}"
+
+# When setting the parameters, numeric values and booleans need to be unquoted and everything else should be single quoted
+# Note that we require some special handling for boolean case sensitivity as Ansible will convert true or false strings to booleans  
+- name: Set Parameter
+  script:  set_parameter_values.sh {{ database_sid }} "{{ item }}"  "{{ database_parameters[item] | regex_replace('^(\d+|(?i)true|(?i)false)$','{NOBEGINQUOTE}\1{NOENDQUOTE}') | regex_replace('^(.*)$',"'\1'") | regex_replace("'{NOBEGINQUOTE}|{NOENDQUOTE}'") }}"
+  register: setout
+  with_items: "{{ database_parameters }}"
+  when: database_parameters[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE') != 
+        database_parameters_actual[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE')
+
+- name: Report Output of System Alteration
+  debug:
+       msg: "{{ item.stdout }}"
+  with_items: "{{ setout.results }}"
+  when: item.stdout is defined
+  loop_control:
+    label: "{{ item.stdout | default('') }}"
+ 
