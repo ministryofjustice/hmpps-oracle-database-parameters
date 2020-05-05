@@ -4,7 +4,7 @@ export ORACLE_SID=$1
 export PARAMETERS_CSV=$2
 
 # Check Oracle SID exists
-/usr/local/bin/dbhome ${ORACLE_SID}
+/usr/local/bin/dbhome ${ORACLE_SID} >/dev/null
 if [[ $? -gt 0 ]]
 then
 echo "Invalid Oracle SID"
