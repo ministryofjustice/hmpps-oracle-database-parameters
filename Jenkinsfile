@@ -44,7 +44,7 @@ def run_ansible(environment_name) {
                   ansible-playbook -u hmpps_integration_test \
                   -i "/home/tools/data/hmpps-env-configs/${environment_name}/ansible" \
                   ./delius-manual-deployments/operations/oracle_parameters/set_oracle_parameters.yml \
-                  --extra-vars "hosts=oracle_databases" \
+                  --extra-vars "target_host=oracle_databases" \
                   -v \"
         set -x
         """
