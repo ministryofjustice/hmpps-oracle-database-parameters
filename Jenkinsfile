@@ -22,13 +22,37 @@ def environments = [
 ]
 
 
+
+def targets = [
+  'oracle_databases',
+  'delius_primarydb',
+  'delius_standbydb1',
+  'delius_standbydb2',
+  'mis_primarydb',
+  'mis_standbydb1',
+  'mis_standbydb2',
+  'misboe_primarydb',
+  'misboe_standbydb1',
+  'misboe_standbydb2',
+  'misdsd_primarydb',
+  'misdsd_standbydb1',
+  'misdsd_standbydb2',
+  'delius_dbs',
+  'mis_dbs',
+  'misboe_dbs',
+  'misdsd_dbs'
+]
+
+
+
+
 def prepare_env() {
     sh '''
         docker pull mojdigitalstudio/hmpps-ansible-builder:latest
     '''
 }
 
-def run_ansible(environment_name) {
+def run_ansible(environment_name,target_host) {
 
     sshagent (credentials: ['hmpps_integration_test-key']) {
         sh """
@@ -44,7 +68,7 @@ def run_ansible(environment_name) {
                   ansible-playbook -u hmpps_integration_test \
                   -i "/home/tools/data/hmpps-env-configs/${environment_name}/ansible" \
                   ./delius-manual-deployments/operations/oracle_parameters/set_oracle_parameters.yml \
-                  --extra-vars "target_host=oracle_databases" \
+                  --extra-vars "target_host=${target_host}" \
                   -v \"
         set -x
         """
@@ -57,6 +81,7 @@ pipeline {
 
   parameters {
     choice(name: 'environment_name', choices: environments, description: 'Select environment')
+    choice(name: 'target_host', choices: targets, description: 'Select databases')
    }
 
   stages {
@@ -74,7 +99,7 @@ pipeline {
 
     stage('Set Custom Oracle Parameters') {
       steps {
-        run_ansible(environment_name)
+        run_ansible(environment_name,target_host)
       }
     }
   }
