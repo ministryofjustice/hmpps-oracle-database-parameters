@@ -1,15 +1,18 @@
 #!/bin/bash
 
 export ORACLE_SID=$1
-export PARAMETERS_CSV=$2
+export PARAMETER_NAME=$2
+export PARAMETER_VALUE=$3
 
 # Check Oracle SID exists
-/usr/local/bin/dbhome ${ORACLE_SID} >/dev/null
+/usr/local/bin/dbhome ${ORACLE_SID}
 if [[ $? -gt 0 ]]
 then
 echo "Invalid Oracle SID"
 exit 123
 fi
+
+echo "Setting $PARAMETER_NAME to $PARAMETER_VALUE"
 
 export PATH=$PATH:/usr/local/bin; 
 export ORAENV_ASK=NO ; 
@@ -18,11 +21,9 @@ export ORAENV_ASK=NO ;
 sqlplus -s /  as sysdba <<EOF
 SET LINES 1000
 SET PAGES 0
-SET FEEDBACK OFF
+SET FEEDBACK ON
 SET HEADING OFF
 WHENEVER SQLERROR EXIT FAILURE
-SELECT name||','||value||','||DECODE(isinstance_modifiable,'FALSE','RESTART','NORESTART')
-FROM   v\$parameter
-WHERE  name IN ($PARAMETERS_CSV);
+ALTER SYSTEM SET $PARAMETER_NAME = $PARAMETER_VALUE SCOPE=SPFILE;
 EXIT
 EOF
