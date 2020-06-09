@@ -32,7 +32,12 @@
   changed_when: false
 
 - set_fact:
-        database_parameters_actual: "{{ database_parameters_actual | default({}) | combine(dict([item.split(',')])) }}"
+        database_parameters_actual: "{{ database_parameters_actual | default({}) | combine({item.split(',')[0]:item.split(',')[1]}) }}"
+  with_items: "{{ current_parameter_values.stdout_lines }}"
+
+- name: Create dictionary for parameters that can be changed in spfile only
+  set_fact:
+    database_parameters_spfile: "{{ database_parameters_spfile | default({}) | combine({item.split(',')[0]:item.split(',')[2]}) }}" 
   with_items: "{{ current_parameter_values.stdout_lines }}"
 
 - name: What is Set
@@ -46,14 +51,42 @@
   script:  set_parameter_values.sh {{ database_sid }} "{{ item }}"  "{{ database_parameters[item] | regex_replace('^(\d+|(?i)true|(?i)false)$','{NOBEGINQUOTE}\1{NOENDQUOTE}') | regex_replace('^(.*)$',"'\1'") | regex_replace("'{NOBEGINQUOTE}|{NOENDQUOTE}'") }}"
   register: setout
   with_items: "{{ database_parameters }}"
-  when: database_parameters[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE') != 
-        database_parameters_actual[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE')
+  when: 
+    - database_parameters[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE') != database_parameters_actual[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE')
+    - database_parameters_spfile[item] == 'NORESTART'
+
+- name: Set Parameter In Spfile 
+  script:  set_parameter_values_spfile.sh {{ database_sid }} "{{ item }}"  "{{ database_parameters[item] | regex_replace('^(\d+|(?i)true|(?i)false)$','{NOBEGINQUOTE}\1{NOENDQUOTE}') | regex_replace('^(.*)$',"'\1'") | regex_replace("'{NOBEGINQUOTE}|{NOENDQUOTE}'") }}"
+  register: setout_spfile
+  with_items: "{{ database_parameters }}"
+  when: 
+    - database_parameters[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE') != database_parameters_actual[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE')
+    - database_parameters_spfile[item] == 'RESTART'
 
 - name: Report Output of System Alteration
   debug:
        msg: "{{ item.stdout }}"
-  with_items: "{{ setout.results }}"
+  with_items: "{{ setout.results }} + {{ setout_spfile.results }}"
   when: item.stdout is defined
   loop_control:
     label: "{{ item.stdout | default('') }}"
+
+- name: Set Fact
+  set_fact:
+    restart_database_instance: yes
+  with_items: "{{ setout_spfile.results }}"
+  no_log: true
+  when: item.stdout is defined
+
+- name: Restart Database Instance If Required
+  shell: |
+    . ~/.bash_profile
+    ORACLE_SID={{ database_sid }}
+    ORAENV_ASK=NO
+    . oraenv > /dev/null;
+    srvctl stop database -d {{ database_sid }}
+    srvctl start database -d {{ database_sid }}
+  register: restart
+  when: (restart_database_instance is defined) and (restart_database_instance | bool | default(false))
+
  
