@@ -21,7 +21,7 @@ SET PAGES 0
 SET FEEDBACK OFF
 SET HEADING OFF
 WHENEVER SQLERROR EXIT FAILURE
-SELECT name||','||value
+SELECT name||','||value||','||DECODE(isinstance_modifiable,'FALSE','RESTART','NORESTART')
 FROM   v\$parameter
 WHERE  name IN ($PARAMETERS_CSV);
 EXIT
