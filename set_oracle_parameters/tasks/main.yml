@@ -63,7 +63,7 @@
 
 - name: What is Set
   debug:
-     msg: "{{ item }} Expected: {{ memory_expanded_values[item] | default(database_parameters[item]) }} ; Actual: {{ database_parameters_actual[item] }}"
+     msg: "{{ item }} Expected: {{ ( memory_expanded_values | default({}) )[item] | default(database_parameters[item]) }} ; Actual: {{ database_parameters_actual[item] }}"
   with_items: "{{ database_parameters }}"
 
 # Reject SGA_TARGET if SGA_MAX_SIZE is not large enough
