@@ -22,9 +22,10 @@
       database_parameters: '{{ database_parameters| combine(default_pack_licence) }}'
   when: "'control_management_pack_access' not in database_parameters"
 
+# Always fetch sga_max_size regardless of whether we need it as it is an upper limit for sga_target
 - name: Create CSV List of Database Parameters
   set_fact:
-     parameter_csv: "{{ database_parameters | dictsort | map(attribute='0') | map('regex_replace', '^(.*)$', \"'\\1'\") | join(',') }}"
+     parameter_csv: "{{ database_parameters | dictsort | map(attribute='0') | map('regex_replace', '^(.*)$', \"'\\1'\") | join(',') + \",'sga_max_size'\" }}"
 
 - name: Get List of Current Database Parameter Values
   script:  get_parameter_values.sh {{ database_sid }} "{{ parameter_csv }}"
@@ -40,10 +41,38 @@
     database_parameters_spfile: "{{ database_parameters_spfile | default({}) | combine({item.split(',')[0]:item.split(',')[2]}) }}" 
   with_items: "{{ current_parameter_values.stdout_lines }}"
 
+# We define memory_expanded_values as the values for memory parameters in bytes, i.e. expanding out the K, M or G suffixes
+# so that we can do integer based comparisons.  memory_expanded_values are the target values (not necessarily those in use on the instance).
+- name: Expand Out Kilo Memory Sizes
+  set_fact:
+    memory_expanded_values: "{{ memory_expanded_values | default({}) | combine({item: ((database_parameters[item] | regex_replace('(?i)^(\\d+)K*$','\\1') | int ) * 1024) | string }) }}"
+  with_items: "{{ memory_parameter_names }}"
+  when: database_parameters[item] | default('') | regex_search('(?i)^(\\d+)K$')
+
+- name: Expand Out Mega Memory Sizes
+  set_fact:
+    memory_expanded_values: "{{ memory_expanded_values | default({}) | combine({item: ((database_parameters[item] | regex_replace('(?i)^(\\d+)M*$','\\1') | int ) * 1024 * 1024) | string }) }}"
+  with_items: "{{ memory_parameter_names }}"
+  when: database_parameters[item] | default('') | regex_search('(?i)^(\\d+)M$')
+
+- name: Expand Out Giga Memory Sizes
+  set_fact:
+    memory_expanded_values: "{{ memory_expanded_values | default({}) | combine({item: ((database_parameters[item] | regex_replace('(?i)^(\\d+)G*$','\\1') | int ) * 1024 * 1024 * 1024) | string }) }}"
+  with_items: "{{ memory_parameter_names }}"
+  when: database_parameters[item] | default('') | regex_search('(?i)^(\\d+)G$')
+
 - name: What is Set
   debug:
-     msg: "{{ item }} Expected: {{ database_parameters[item] }} ; Actual: {{ database_parameters_actual[item] }}"
+     msg: "{{ item }} Expected: {{ memory_expanded_values[item] | default(database_parameters[item]) }} ; Actual: {{ database_parameters_actual[item] }}"
   with_items: "{{ database_parameters }}"
+
+# Reject SGA_TARGET if SGA_MAX_SIZE is not large enough
+# i.e. Compare SGA_TARGET with the Specified SGA_MAX_SIZE; or the current SGA_MAX_SIZE if it has not been specified
+# We must use the expanded (bytes) values for comparison, not the values with K/M/G suffixes
+- name: Check SGA_MAX_SIZE is large enough for SGA_TARGET
+  assert:
+     that:  ( memory_expanded_values['sga_target'] | int ) <= ( memory_expanded_values['sga_max_size'] | default(database_parameters_actual['sga_max_size']) | int )
+  when: database_parameters['sga_target'] is defined
 
 # When setting the parameters, numeric values and booleans need to be unquoted and everything else should be single quoted
 # Note that we require some special handling for boolean case sensitivity as Ansible will convert true or false strings to booleans  
@@ -52,6 +81,7 @@
   register: setout
   with_items: "{{ database_parameters }}"
   when: 
+    - item not in memory_parameter_names
     - database_parameters[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE') != database_parameters_actual[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE')
     - database_parameters_spfile[item] == 'NORESTART'
 
@@ -60,23 +90,64 @@
   register: setout_spfile
   with_items: "{{ database_parameters }}"
   when: 
+    - item not in memory_parameter_names
     - database_parameters[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE') != database_parameters_actual[item] | regex_replace('(?i)true','TRUEVALUE') | regex_replace('(?i)false','FALSEVALUE')
     - database_parameters_spfile[item] == 'RESTART'
+
+# Set SGA_TARGET directly if there is already enough SGA available and the change is more than one granule.
+# (We cannot change memory component sizes by fractions of a granule, so this restriction prevents repeating attempts
+#  to make small memory changes which will never complete to the exact number of bytes specified)
+- name: Set SGA_TARGET
+  script: set_parameter_values.sh {{ database_sid }} sga_target {{ database_parameters['sga_target'] }} 
+  register: setout_sga_target
+  with_items: "sga_target-online"
+  when:
+    - database_parameters['sga_target'] is defined
+    - (   ( memory_expanded_values['sga_target'] | int ) < ((database_parameters_actual['sga_target']  | int ) - granule_size)
+      or  ( memory_expanded_values['sga_target'] | int ) > ((database_parameters_actual['sga_target']  | int ) + granule_size) )
+    - ( memory_expanded_values['sga_target'] | int ) <= (database_parameters_actual['sga_max_size'] | int )
+
+# Set SGA_TARGET in SPFILE if there is not enough memory but SGA_MAX_SIZE is being increased to accommodate it
+# and the change in size is more than one granule
+- name: Set SGA_TARGET In Spfile
+  script: set_parameter_values_spfile.sh {{ database_sid }} sga_target {{ database_parameters['sga_target'] }} 
+  register: setout_sga_target_spfile
+  with_items: "sga_target-spfile"
+  when:
+    - database_parameters['sga_target'] is defined
+    - database_parameters['sga_max_size'] is defined
+    - (   ( memory_expanded_values['sga_target'] | int ) < ((database_parameters_actual['sga_target']  | int ) - granule_size)
+      or  ( memory_expanded_values['sga_target'] | int ) > ((database_parameters_actual['sga_target']  | int ) + granule_size) )
+    - ( memory_expanded_values['sga_target'] | int ) >  ( database_parameters_actual['sga_max_size'] | int )
+    - ( memory_expanded_values['sga_target'] | int ) <= ( memory_expanded_values['sga_max_size'] | int )
+
+# Set SGA_MAX_SIZE in SPFILE if it has been changed by more than one granule
+- name: Set SGA_MAX_SIZE
+  script: set_parameter_values_spfile.sh {{ database_sid }} sga_max_size {{ database_parameters['sga_max_size'] }} 
+  register: setout_sga_maxsize_spfile
+  with_items: "sga_max_size"
+  when: 
+    - database_parameters['sga_max_size'] is defined
+    - (   ( memory_expanded_values['sga_max_size'] | int ) < ((database_parameters_actual['sga_max_size']  | int ) - granule_size)
+      or  ( memory_expanded_values['sga_max_size'] | int ) > ((database_parameters_actual['sga_max_size']  | int ) + granule_size) )
 
 - name: Report Output of System Alteration
   debug:
        msg: "{{ item.stdout }}"
-  with_items: "{{ setout.results }} + {{ setout_spfile.results }}"
+  with_items: "{{ setout.results }} + {{ setout_spfile.results }} + {{ setout_sga_target.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }}"
   when: item.stdout is defined
   loop_control:
-    label: "{{ item.stdout | default('') }}"
+    label: "{{ item.item }}"
 
-- name: Set Fact
+- name: Detect if Restart Required
   set_fact:
     restart_database_instance: yes
-  with_items: "{{ setout_spfile.results }}"
-  no_log: true
+  with_items: "{{ setout_spfile.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }}"
   when: item.stdout is defined
+  # no_log: true
+  when: item.stdout is defined
+  loop_control:
+    label: "{{ item.item }}"
 
 - name: Restart Database Instance If Required
   shell: |
