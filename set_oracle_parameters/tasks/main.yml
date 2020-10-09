@@ -34,7 +34,7 @@
 
 - set_fact:
         database_parameters_actual: "{{ database_parameters_actual | default({}) | combine({item.split(',')[0]:item.split(',')[1]}) }}"
-  with_items: "{{ current_parameter_values.stdout_lines }}"
+  loop: "{{ current_parameter_values.stdout_lines }}"
 
 - name: Create dictionary for parameters that can be changed in spfile only
   set_fact:
