@@ -33,7 +33,7 @@
   changed_when: false
 
 - debug:
-    msg: "If fails below"
+    var: current_parameter_values
 
 - set_fact:
         database_parameters_actual: "{{ database_parameters_actual | default({}) | combine({item.split('|')[0]:item.split('|')[1]}) }}"
