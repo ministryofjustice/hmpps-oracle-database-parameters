@@ -34,12 +34,12 @@
 
 - set_fact:
         database_parameters_actual: "{{ database_parameters_actual | default({}) | combine({item.split(',')[0]:item.split(',')[1]}) }}"
-  with_items: "{{ current_parameter_values.stdout_lines }}"
+  loop: "{{ current_parameter_values.stdout_lines | select() | list }}"
 
 - name: Create dictionary for parameters that can be changed in spfile only
   set_fact:
     database_parameters_spfile: "{{ database_parameters_spfile | default({}) | combine({item.split(',')[0]:item.split(',')[2]}) }}" 
-  with_items: "{{ current_parameter_values.stdout_lines }}"
+  with_items: "{{ current_parameter_values.stdout_lines | select() | list }}"
 
 # We define memory_expanded_values as the values for memory parameters in bytes, i.e. expanding out the K, M or G suffixes
 # so that we can do integer based comparisons.  memory_expanded_values are the target values (not necessarily those in use on the instance).
