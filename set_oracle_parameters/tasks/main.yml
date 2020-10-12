@@ -33,11 +33,11 @@
   changed_when: false
 
 - debug:
-    var: current_parameter_values
+    msg: "{{ current_parameter_values.stdout_lines | select() | list }}"
 
 - set_fact:
-        database_parameters_actual: "{{ database_parameters_actual | default({}) | combine({item.split('|')[0]:item.split('|')[1]}) }}"
-  loop: "{{ current_parameter_values.stdout_lines }}"
+        database_parameters_actual: "{{ database_parameters_actual | default({}) | combine({item.split(',')[0]:item.split(',')[1]}) }}"
+  loop: "{{ current_parameter_values.stdout_lines | select() | list }}"
 
 - name: Create dictionary for parameters that can be changed in spfile only
   set_fact:
