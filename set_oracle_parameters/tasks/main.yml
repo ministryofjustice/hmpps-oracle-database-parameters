@@ -152,6 +152,7 @@
   register: restart
   when: (restart_database_instance is defined) and (restart_database_instance | bool | default(false))
 
+<<<<<<< HEAD
 # PGA parameter changes do not require a restart of the database instance and is safe to place
 # at the end of the playbook as their respective values depend on other database parameter values.
 # PGA_AGGREGATE_LIMIT is dependant on both PGA_AGGREGATE_TARGET and PROCESESS value
@@ -256,3 +257,7 @@
   loop_control:
     label: "{{ item.item }}"
  
+# Additional Non-SPFILE Parameters:  SQL*Net network configuration parameters set-up
+- name: Set SQL*Net Network Parameters If Required
+  include:  sqlnet_parameters.yml
+  when: sqlnet_parameters is defined
