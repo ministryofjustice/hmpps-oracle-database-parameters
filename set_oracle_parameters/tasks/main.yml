@@ -243,8 +243,6 @@
       script: set_parameter_values.sh {{ database_sid }} pga_aggregate_target {{ database_parameters['pga_aggregate_target'] }} 
       with_items: "pga_aggregate_target" 
       register: setout_pga_target
-
-    - debug: var=setout_pga_target
     
   when: 
     - database_parameters['pga_aggregate_target'] is defined
