@@ -1,18 +1,5 @@
 ---
 
-# - set_fact:
-#     a: "10033"
-#     b: "5001"
-#     c: "3000"
-
-# - name: Caculate maximum allowed PGA_AGGREGATE_TARGET value 
-#   set_fact:
-#     pga_aggregate_target_allowed: "{{ [((a | int -   b | int) / 2 ), c | int ] | min | int }}"
-
-# - debug: var=pga_aggregate_target_allowed
-
-# - meta: end_play
-
 - name: Get Database SID
   set_fact:
      database_sid: "{{ database_primary_sid | default(database_standby_sid) }}"
