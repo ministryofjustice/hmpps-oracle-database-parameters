@@ -160,4 +160,7 @@
   register: restart
   when: (restart_database_instance is defined) and (restart_database_instance | bool | default(false))
 
- 
+# Additional Non-SPFILE Parameters:  SQL*Net network configuration parameters set-up
+- name: Set SQL*Net Network Parameters If Required
+  include:  sqlnet_parameters.yml
+  when: sqlnet_parameters is defined
