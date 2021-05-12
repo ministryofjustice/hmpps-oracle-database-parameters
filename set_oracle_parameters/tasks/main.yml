@@ -131,14 +131,6 @@
     - (   ( memory_expanded_values['sga_max_size'] | int ) < ((database_parameters_actual['sga_max_size']  | int ) - granule_size)
       or  ( memory_expanded_values['sga_max_size'] | int ) > ((database_parameters_actual['sga_max_size']  | int ) + granule_size) )
 
-- name: Report Output of System Alteration
-  debug:
-       msg: "{{ item.stdout }}"
-  with_items: "{{ setout.results }} + {{ setout_spfile.results }} + {{ setout_sga_target.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }}"
-  when: item.stdout is defined
-  loop_control:
-    label: "{{ item.item }}"
-
 - name: Detect if Restart Required
   set_fact:
     restart_database_instance: yes
@@ -160,6 +152,111 @@
   register: restart
   when: (restart_database_instance is defined) and (restart_database_instance | bool | default(false))
 
+<<<<<<< HEAD
+# PGA parameter changes do not require a restart of the database instance and is safe to place
+# at the end of the playbook as their respective values depend on other database parameter values.
+# PGA_AGGREGATE_LIMIT is dependant on both PGA_AGGREGATE_TARGET and PROCESESS value
+#
+# Example:
+# PGA_AGGREGATE_LIMIT >= MAX(PGA_AGGREGATE_TARGET * 2, PROCESESS * 3Mb, 2Gb)
+#
+# PGA_AGGREGATE_TARGET is dependant on both PGA_AGGREGATE_LIMIT and SGA_TARGET value
+#
+# Example:
+# PGA_AGGREGATE_TARGET <= ((90% * PHYSICAL MEMORY) - SGA_TARGET) / 2 
+# PGA_AGGREGATE_TARGET <= PGA_AGGREGATE_LIMIT / 2
+
+# Ensure PGA_AGGREGATE_LIMIT value is set to no more than Oracle allowed value to avoid ORA-00093 errors
+- block:
+
+    - name: Get processes value
+      script:  get_parameter_values.sh {{ database_sid }} "'processes'"
+      register: current_processes
+      changed_when: false
+
+    - name: Get pga target value
+      script:  get_parameter_values.sh {{ database_sid }} "'pga_aggregate_target'"
+      register: current_pga_target
+      changed_when: false
+
+    - set_fact:
+        processes_value: '{{ ( current_processes.stdout_lines[0].split(",")[1] | int ) * 3 * 1024 * 1024 }}'
+        pga_target_value: '{{ ( current_pga_target.stdout_lines[0].split(",")[1] | int * 2 ) }}'
+
+    - name: Calculate maximum allowed PGA_AGGREGATE_LIMIT value when expected pga target is not set
+      set_fact:
+        pga_aggregate_limit_allowed: "{{ [ ( processes_value | int ), ( pga_target_value | int ), (2 * 1024 * 1024 * 1024) ] | max }}"
+      when: 
+        - database_parameters['pga_aggregate_target'] is not defined 
+
+    - name: Calculate maximum allowed PGA_AGGREGATE_LIMIT value when expected pga target is set
+      set_fact:
+        pga_aggregate_limit_allowed: "{{ [ ( processes_value | int ), (( memory_expanded_values['pga_aggregate_target']  | int ) * 2), (2 * 1024 * 1024 * 1024) ] | max }}"
+      when: 
+        - database_parameters['pga_aggregate_target'] is defined 
+
+    - name: Compare maximum allowed PGA_AGGREGATE_LIMIT value with expected value
+      assert:
+        that: memory_expanded_values['pga_aggregate_limit'] | int >= pga_aggregate_limit_allowed | int
+        fail_msg: "Please ensure PGA_AGGREGATE_LIMIT value is greater than or equal to {{ pga_aggregate_limit_allowed }} bytes"
+
+    - name: Set PGA_AGGREGATE_LIMIT
+      script: set_parameter_values.sh {{ database_sid }} pga_aggregate_limit {{ database_parameters['pga_aggregate_limit'] }}
+      with_items: "pga_aggregate_limit" 
+      register: setout_pga_limit
+
+  when: 
+    - database_parameters['pga_aggregate_limit'] is defined
+    - memory_expanded_values['pga_aggregate_limit'] | int != database_parameters_actual['pga_aggregate_limit'] | int
+
+# Ensure PGA_AGGREGATE_TARGET value is set to no more than Oracle allowed value to avoid ORA-00855,ORA-0856 errors
+- block:
+
+    - name: Get 90% value of total memory allocated to server
+      shell: |
+        grep ^MemTotal: /proc/meminfo | awk '{printf("%.f",$2*1024*0.9)}'
+      register: memtotal
+
+    - name: Get sga_target value
+      script:  get_parameter_values.sh {{ database_sid }} "'sga_target'"
+      register: current_sga_target
+      changed_when: false
+
+    - name: Get pga_aggregate_limit value
+      script:  get_parameter_values.sh {{ database_sid }} "'pga_aggregate_limit'"
+      register: current_pga_limit
+      changed_when: false
+
+    - set_fact:
+        sga_limit: '{{ ((( memtotal.stdout | int ) - ( current_sga_target.stdout_lines[0].split(",")[1] | int )) / 2 ) | round | int }}'
+        pga_limit: '{{ (( current_pga_limit.stdout_lines[0].split(",")[1] | int ) / 2 ) | round | int }}'
+
+    - set_fact:
+        pga_aggregate_target_allowed: "{{ [ ( sga_limit | int), ( pga_limit | int ) ] | min }}"
+
+    - name: Compare maximum allowed PGA_AGGREGATE_TARGET value with expected value
+      assert:
+        that: 
+          - memory_expanded_values['pga_aggregate_target'] | int <=  pga_aggregate_target_allowed | int
+        fail_msg: "Please ensure PGA_AGGREGATE_TARGET value is less than or equal to {{ pga_aggregate_target_allowed }} bytes"
+
+    - name: Set PGA_AGGREGATE_TARGET
+      script: set_parameter_values.sh {{ database_sid }} pga_aggregate_target {{ database_parameters['pga_aggregate_target'] }} 
+      with_items: "pga_aggregate_target" 
+      register: setout_pga_target
+    
+  when: 
+    - database_parameters['pga_aggregate_target'] is defined
+    - memory_expanded_values['pga_aggregate_target'] | int != database_parameters_actual['pga_aggregate_target'] | int
+
+- name: Report Output of System Alteration
+  debug:
+       msg: "{{ item.stdout }}"
+  with_items: "{{ setout.results }} + {{ setout_spfile.results }} + {{ setout_sga_target.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }} + {{ setout_pga_target.results }} + {{ setout_pga_limit.results }}"
+  when: item.stdout is defined
+  loop_control:
+    label: "{{ item.item }}"
+ 
 # Additional Non-SPFILE Parameters:  SQL*Net network configuration parameters set-up
 - name: Set SQL*Net Network Parameters If Required
   include:  sqlnet_parameters.yml
