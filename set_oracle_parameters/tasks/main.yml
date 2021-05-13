@@ -173,36 +173,59 @@
       register: current_processes
       changed_when: false
 
-    - name: Get pga target value
-      script:  get_parameter_values.sh {{ database_sid }} "'pga_aggregate_target'"
-      register: current_pga_target
-      changed_when: false
-
-    - set_fact:
+    - name: Set processes limit
+      set_fact:
         processes_value: '{{ ( current_processes.stdout_lines[0].split(",")[1] | int ) * 3 * 1024 * 1024 }}'
-        pga_target_value: '{{ ( current_pga_target.stdout_lines[0].split(",")[1] | int * 2 ) }}'
 
-    - name: Calculate maximum allowed PGA_AGGREGATE_LIMIT value when expected pga target is not set
-      set_fact:
-        pga_aggregate_limit_allowed: "{{ [ ( processes_value | int ), ( pga_target_value | int ), (2 * 1024 * 1024 * 1024) ] | max }}"
+    - block:
+
+        - name: Get pga target value
+          script:  get_parameter_values.sh {{ database_sid }} "'pga_aggregate_target'"
+          register: current_pga_target
+          changed_when: false
+
+        - name: Set pga target limit
+          set_fact:
+            pga_target_value: '{{ ( current_pga_target.stdout_lines[0].split(",")[1] | int * 2 ) }}'
+
+        - name: Calculate maximum allowed PGA_AGGREGATE_LIMIT value when expected pga target is not set or expected pga target is equal to actual pga target
+          set_fact:
+            pga_aggregate_limit_allowed: "{{ [ ( processes_value | int ), ( pga_target_value | int ), (2 * 1024 * 1024 * 1024) ] | max }}"
+
+        - name: Compare maximum allowed PGA_AGGREGATE_LIMIT value with expected value
+          assert:
+            that: memory_expanded_values['pga_aggregate_limit'] | int >= pga_aggregate_limit_allowed | int
+            fail_msg: "Please ensure PGA_AGGREGATE_LIMIT value is greater than or equal to {{ pga_aggregate_limit_allowed }} bytes"
+
+        - name: Set PGA_AGGREGATE_LIMIT
+          script: set_parameter_values.sh {{ database_sid }} pga_aggregate_limit {{ database_parameters['pga_aggregate_limit'] }}
+          with_items: "pga_aggregate_limit" 
+          register: setout_pga_limit
+
+        - set_fact:
+            set_pga_aggregate_limit_later: false
+
       when: 
-        - database_parameters['pga_aggregate_target'] is not defined 
+        - database_parameters['pga_aggregate_target'] is not defined
+          or ( database_parameters['pga_aggregate_target'] is defined  and ( memory_expanded_values['pga_aggregate_target'] | int == database_parameters_actual['pga_aggregate_target'] | int ) )
 
-    - name: Calculate maximum allowed PGA_AGGREGATE_LIMIT value when expected pga target is set
-      set_fact:
-        pga_aggregate_limit_allowed: "{{ [ ( processes_value | int ), (( memory_expanded_values['pga_aggregate_target']  | int ) * 2), (2 * 1024 * 1024 * 1024) ] | max }}"
+    - block:
+
+        - name: Calculate maximum allowed PGA_AGGREGATE_LIMIT value when expected pga target is set and not equal to actual pga target
+          set_fact:
+            pga_aggregate_limit_allowed: "{{ [ ( processes_value | int ), (( memory_expanded_values['pga_aggregate_target']  | int ) * 2), (2 * 1024 * 1024 * 1024) ] | max }}"
+
+        - name: Compare maximum allowed PGA_AGGREGATE_LIMIT value with expected value
+          assert:
+            that: memory_expanded_values['pga_aggregate_limit'] | int >= pga_aggregate_limit_allowed | int
+            fail_msg: "Please ensure PGA_AGGREGATE_LIMIT value is greater than or equal to {{ pga_aggregate_limit_allowed }} bytes"
+  
+        - set_fact:
+            set_pga_aggregate_limit_later: true
+
       when: 
         - database_parameters['pga_aggregate_target'] is defined 
-
-    - name: Compare maximum allowed PGA_AGGREGATE_LIMIT value with expected value
-      assert:
-        that: memory_expanded_values['pga_aggregate_limit'] | int >= pga_aggregate_limit_allowed | int
-        fail_msg: "Please ensure PGA_AGGREGATE_LIMIT value is greater than or equal to {{ pga_aggregate_limit_allowed }} bytes"
-
-    - name: Set PGA_AGGREGATE_LIMIT
-      script: set_parameter_values.sh {{ database_sid }} pga_aggregate_limit {{ database_parameters['pga_aggregate_limit'] }}
-      with_items: "pga_aggregate_limit" 
-      register: setout_pga_limit
+        - memory_expanded_values['pga_aggregate_target'] | int != database_parameters_actual['pga_aggregate_target'] | int
 
   when: 
     - database_parameters['pga_aggregate_limit'] is defined
@@ -221,28 +244,52 @@
       register: current_sga_target
       changed_when: false
 
-    - name: Get pga_aggregate_limit value
-      script:  get_parameter_values.sh {{ database_sid }} "'pga_aggregate_limit'"
-      register: current_pga_limit
-      changed_when: false
-
-    - set_fact:
+    - name: Calculate sga limit
+      set_fact:
         sga_limit: '{{ ((( memtotal.stdout | int ) - ( current_sga_target.stdout_lines[0].split(",")[1] | int )) / 2 ) | round | int }}'
-        pga_limit: '{{ (( current_pga_limit.stdout_lines[0].split(",")[1] | int ) / 2 ) | round | int }}'
 
-    - set_fact:
+    - name: Calculate pga limit if already set
+      set_fact:
+        pga_limit: "{{ (( database_parameters_actual['pga_aggregate_limit'] | int  ) / 2 ) | round | int }}"
+      when: 
+        - not set_pga_aggregate_limit_later | default(false) | bool 
+
+    - name: Calculate pga limit if not set
+      set_fact:
+        pga_limit: "{{ (( memory_expanded_values['pga_aggregate_limit'] | int ) / 2 ) | round | int }}"
+      when: 
+        - set_pga_aggregate_limit_later | default(false) | bool
+
+    - name: Set allowed pga_aggregate_target limit
+      set_fact: 
         pga_aggregate_target_allowed: "{{ [ ( sga_limit | int), ( pga_limit | int ) ] | min }}"
 
     - name: Compare maximum allowed PGA_AGGREGATE_TARGET value with expected value
       assert:
         that: 
           - memory_expanded_values['pga_aggregate_target'] | int <=  pga_aggregate_target_allowed | int
-        fail_msg: "Please ensure PGA_AGGREGATE_TARGET value is less than or equal to {{ pga_aggregate_target_allowed }} bytes"
+        fail_msg: 
+          - "Please ensure PGA_AGGREGATE_TARGET value is less than or equal to {{ pga_aggregate_target_allowed }} bytes"
+
+    - name: Calculate if pga_aggregate_limit temporary value is to be set
+      set_fact:
+        pga_aggregate_limit_tmp_value: "{{ (( memory_expanded_values['pga_aggregate_target'] | int ) * 2 ) | round | int }} "
+      when: memory_expanded_values['pga_aggregate_target'] | int > ( database_parameters_actual['pga_aggregate_limit'] | int ) / 2 
+
+    - name: Set PGA_AGGREGATE_LIMIT to temporary value
+      script: set_parameter_values.sh {{ database_sid }} pga_aggregate_limit {{ pga_aggregate_limit_tmp_value }} 
+      when: memory_expanded_values['pga_aggregate_target'] | int > ( database_parameters_actual['pga_aggregate_limit'] | int ) / 2 
 
     - name: Set PGA_AGGREGATE_TARGET
       script: set_parameter_values.sh {{ database_sid }} pga_aggregate_target {{ database_parameters['pga_aggregate_target'] }} 
       with_items: "pga_aggregate_target" 
       register: setout_pga_target
+
+    - name: Set PGA_AGGREGATE_LIMIT if not already set
+      script: set_parameter_values.sh {{ database_sid }} pga_aggregate_limit {{ database_parameters['pga_aggregate_limit'] }} 
+      with_items: "pga_aggregate_limit" 
+      register: setout_pga_limit
+      when: set_pga_aggregate_limit_later | default(false) | bool
     
   when: 
     - database_parameters['pga_aggregate_target'] is defined
