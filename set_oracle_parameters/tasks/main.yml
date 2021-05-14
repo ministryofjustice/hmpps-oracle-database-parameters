@@ -1,5 +1,9 @@
 ---
 
+- name: Why Host
+  debug:
+     vars=target_host
+
 - name: Get Database SID
   set_fact:
      database_sid: "{{ database_primary_sid | default(database_standby_sid) }}"
