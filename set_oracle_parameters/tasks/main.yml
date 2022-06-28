@@ -136,8 +136,6 @@
     restart_database_instance: yes
   with_items: "{{ setout_spfile.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }}"
   when: item.stdout is defined
-  # no_log: true
-  when: item.stdout is defined
   loop_control:
     label: "{{ item.item }}"
 
@@ -307,3 +305,8 @@
 - name: Set SQL*Net Network Parameters If Required
   include:  sqlnet_parameters.yml
   when: sqlnet_parameters is defined
+
+# Additional Non-SPFILE Parameters:  Data Guard configuration parameters set-up
+- name: Set Data Guard Parameters If Required
+  include:  data_guard_parameters.yml
+  when: data_guard_parameters is defined
