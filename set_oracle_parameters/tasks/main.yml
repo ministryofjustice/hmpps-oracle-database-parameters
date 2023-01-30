@@ -318,4 +318,4 @@
   when: 
      - database_parameters.control_management_pack_access in ['DIAGNOSTICS','DIAGNOSTIC+TUNING']
      - database_primary_sid is defined
-     - awr_retention is defined
+     - awr_retention_days is defined
