@@ -7,12 +7,17 @@ AWR_RETENTION_DAYS=$1
 sqlplus -s /  as sysdba <<EOF
 SET LINES 1000
 SET PAGES 0
-SET FEEDBACK OFF
+SET FEEDBACK ON
 SET HEADING OFF
 WHENEVER SQLERROR EXIT FAILURE
-SELECT EXTRACT(DAY FROM retention) days_of_retention
-FROM   dba_hist_wr_control
-WHERE  dbid = (SELECT dbid
-               FROM   v\$database);
+
+DECLARE
+   l_retention_minutes INTEGER;
+BEGIN
+   l_retention_minutes := ${AWR_RETENTION_DAYS} * 60 * 24;
+   DBMS_WORKLOAD_REPOSITORY.modify_snapshot_settings (retention => l_retention_minutes);
+END;
+/
+
 EXIT
 EOF

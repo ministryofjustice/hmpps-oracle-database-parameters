@@ -1,8 +1,22 @@
 #!/bin/bash
 
-AWR_RETENTION_DAYS=$1
+export ORACLE_SID=$1
+export PARAMETER_NAME=$2
+export PARAMETER_VALUE=$3
 
-. ~/.bash_profile
+# Check Oracle SID exists
+/usr/local/bin/dbhome ${ORACLE_SID}
+if [[ $? -gt 0 ]]
+then
+echo "Invalid Oracle SID"
+exit 123
+fi
+
+echo "Setting $PARAMETER_NAME to $PARAMETER_VALUE"
+
+export PATH=$PATH:/usr/local/bin; 
+export ORAENV_ASK=NO ; 
+. oraenv >/dev/null;
 
 sqlplus -s /  as sysdba <<EOF
 SET LINES 1000
@@ -10,14 +24,6 @@ SET PAGES 0
 SET FEEDBACK ON
 SET HEADING OFF
 WHENEVER SQLERROR EXIT FAILURE
-
-DECLARE
-   l_retention_minutes INTEGER;
-BEGIN
-   l_retention_minutes := ${AWR_RETENTION_DAYS} * 60 * 24;
-   DBMS_WORKLOAD_REPOSITORY.modify_snapshot_settings (retention => l_retention_minutes);
-END;
-/
-
+ALTER SYSTEM SET $PARAMETER_NAME = $PARAMETER_VALUE ;
 EXIT
 EOF
