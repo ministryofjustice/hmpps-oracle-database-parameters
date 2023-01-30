@@ -316,6 +316,6 @@
 - name: Set AWR Configuration if Required
   include:  awr_parameters.yml
   when: 
-     - database_parameters.control_management_pack_access in ['DIAGNOSTICS','DIAGNOSTICS+TUNING']
+     - database_parameters.control_management_pack_access in ['DIAGNOSTICS','DIAGNOSTIC+TUNING']
      - database_primary_sid is defined
      - awr_retention is defined
