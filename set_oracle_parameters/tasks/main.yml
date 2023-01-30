@@ -310,3 +310,12 @@
 - name: Set Data Guard Parameters If Required
   include:  data_guard_parameters.yml
   when: data_guard_parameters is defined
+
+# Additional Non-SPFILE Parameters: AWR configuration parameters set-up
+# We only need to run this on the Primary Database and Only if Management Packs are enabled
+- name: Set AWR Configuration if Required
+  include:  awr_parameters.yml
+  when: 
+     - database_parameters.control_management_pack_access in ['DIAGNOSTICS','DIAGNOSTICS+TUNING'] is defined
+     - database_primary_sid is defined
+     - awr_retention is defined
