@@ -3,3 +3,4 @@ memory_parameter_names: ["sga_target", "sga_max_size", "pga_aggregate_target", "
 # For SGAs above 1Gb this granule size will be 16Mb
 granule_size: 16777216
 # Dummy change to test formatting
+# More dummy
