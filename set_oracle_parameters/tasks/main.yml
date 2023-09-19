@@ -338,7 +338,7 @@
 - name: Report Output of System Alteration
   debug:
        msg: "{{ item.stdout }}"
-  with_items: "{{ setout.results }} + {{ setout_spfile.results }} + {{ setout_sga_target.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }} + {{ setout_pga_target.results }} + {{ setout_pga_limit.results }}"
+  with_items: "{{ setout.results + setout_spfile.results + setout_sga_target.results + setout_sga_target_spfile.results +setout_sga_maxsize_spfile.results + setout_pga_target.results + setout_pga_limit.results }}"
   when: item.stdout is defined
   loop_control:
     label: "{{ item.item }}"
