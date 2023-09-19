@@ -176,7 +176,7 @@
 - name: Detect if Restart Required
   set_fact:
     restart_database_instance: yes
-  with_items: "{{ setout_spfile.results }} + {{ setout_sga_target_spfile.results }} + {{ setout_sga_maxsize_spfile.results }}"
+  with_items: "{{ setout_spfile.results + setout_sga_target_spfile.results + setout_sga_maxsize_spfile.results }}"
   when: item.stdout is defined
   loop_control:
     label: "{{ item.item }}"
