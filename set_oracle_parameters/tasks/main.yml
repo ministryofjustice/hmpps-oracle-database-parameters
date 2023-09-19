@@ -119,7 +119,7 @@
 
 - name: Show Parameters
   debug:
-     var: "{{ item }}:   database_parameters[item]"
+     var: "{{ item }}:  {{ database_parameters[item] }}"
   with_items: "{{ database_parameters }}"
 
 # When setting the parameters, numeric values and booleans need to be unquoted and everything else should be single quoted
