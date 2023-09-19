@@ -117,6 +117,10 @@
      that:  ( memory_expanded_values['sga_target'] | int ) <= ( memory_expanded_values['sga_max_size'] | default(database_parameters_actual['sga_max_size']) | int )
   when: database_parameters['sga_target'] is defined
 
+- name: Show Parameters
+  debug:
+     var: "{{ database_parameters }}"
+
 # When setting the parameters, numeric values and booleans need to be unquoted and everything else should be single quoted
 # Note that we require some special handling for boolean case sensitivity as Ansible will convert true or false strings to booleans  
 - name: Set Parameter
